@@ -1,0 +1,1 @@
+pyinstaller --name="AscendaraInstaller" --noconsole --windowed --icon=./ascendara.ico --add-data="ui;ui" --add-data="core;core" --add-data="utils;utils" --hidden-import=PIL --hidden-import=PIL._imagingtk --hidden-import=PIL._tkinter_finder --hidden-import uuid --hidden-import requests --onefile app.py

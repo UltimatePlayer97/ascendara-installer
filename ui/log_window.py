@@ -1,5 +1,5 @@
 import customtkinter as ctk
-from ..utils.logging import log_stream
+from utils.logging import log_stream
 
 class LogWindow(ctk.CTkToplevel):
     def __init__(self):

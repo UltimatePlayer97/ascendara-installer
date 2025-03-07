@@ -2,12 +2,17 @@ import os
 import requests
 import logging
 from typing import Optional, Dict
+from pathlib import Path
 
 class Downloader:
+    """Class for handling file downloads with progress reporting"""
+    
     def __init__(self, progress_callback=None, status_callback=None):
+        """Initialize the downloader with optional callbacks"""
         self.progress_callback = progress_callback
         self.status_callback = status_callback
-
+        logging.info("Downloader initialized")
+    
     def download_file(self, url: str, local_path: str, headers: Optional[Dict] = None) -> str:
         """
         Download a file from URL to local path with progress tracking
@@ -23,6 +28,11 @@ class Downloader:
         try:
             # Ensure download directory exists
             os.makedirs(os.path.dirname(local_path), exist_ok=True)
+            
+            logging.info(f"Downloading file from {url} to {local_path}")
+            
+            if self.status_callback:
+                self.status_callback(f"Downloading {Path(local_path).name}...")
             
             # Chrome-like headers for better compatibility
             default_headers = {
@@ -56,8 +66,10 @@ class Downloader:
                                 # Calculate and report progress (capped at 100%)
                                 if self.progress_callback and total_size:
                                     progress = min((downloaded / total_size) * 100, 100.0)
+                                    logging.debug(f"Download progress: {progress:.1f}%")
                                     self.progress_callback(progress)
-                                    
+            
+            logging.info(f"Download completed: {local_path}")
             return local_path
             
         except requests.exceptions.RequestException as e:

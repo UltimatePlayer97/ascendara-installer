@@ -10,57 +10,34 @@ import time
 import uuid
 from .downloader import Downloader
 
-class InstallerProcess:
+class InstallerProcess(threading.Thread):
+    """Thread class for handling the installation process"""
+    
     def __init__(self, progress_callback=None, status_callback=None, completion_callback=None):
+        """Initialize the installer process"""
+        super().__init__()
+        self.daemon = True
         self.progress_callback = progress_callback
         self.status_callback = status_callback
         self.completion_callback = completion_callback
+        self.running = False
+        logging.info("InstallerProcess initialized")
         self.downloader = Downloader(progress_callback, status_callback)
         # Generate a unique client ID for this installer instance
         self.client_id = str(uuid.uuid4())
         # In production, this should be set via environment variable
         self.installer_secret = os.environ.get('INSTALLER_SECRET', 'dev_secret_key')
 
-    def start(self):
-        thread = threading.Thread(target=self._installation_process)
-        thread.daemon = True
-        thread.start()
-
-    def _generate_auth_headers(self):
-        """Generate authentication headers for LFS API"""
-        timestamp = str(int(time.time()))
-        message = f"{timestamp}:{self.client_id}"
-        signature = hmac.new(
-            self.installer_secret.encode(),
-            message.encode(),
-            hashlib.sha256
-        ).hexdigest()
-        
-        return {
-            'X-Installer-Timestamp': timestamp,
-            'X-Installer-Signature': signature,
-            'X-Installer-ID': self.client_id
-        }
-
-    def _update_download_count(self, is_update=False):
+    def run(self):
+        """Run the installation process"""
         try:
-            # Make a quick request to LFS endpoint with authentication
-            params = {'update': '1'} if is_update else {}
-            headers = self._generate_auth_headers()
+            logging.info("Starting installation process")
+            self.running = True
             
-            requests.get(
-                'https://lfs.ascendara.app/download', 
-                params=params,
-                headers=headers,
-                timeout=2,  # Short timeout since we don't need the response
-                stream=True  # Don't download the file
-            )
-        except:
-            # Silently ignore any errors - download count is not critical
-            pass
-
-    def _installation_process(self):
-        try:
+            # Simulate indeterminate progress at start
+            if self.progress_callback:
+                self.progress_callback(None)
+            
             # Get version info directly from api.ascendara.app
             try:
                 response = requests.get('https://api.ascendara.app', timeout=5)
@@ -157,3 +134,38 @@ class InstallerProcess:
                 self.status_callback(f"Error: {error_msg}")
             if self.completion_callback:
                 self.completion_callback(False)
+        finally:
+            self.running = False
+    
+    def _generate_auth_headers(self):
+        """Generate authentication headers for LFS API"""
+        timestamp = str(int(time.time()))
+        message = f"{timestamp}:{self.client_id}"
+        signature = hmac.new(
+            self.installer_secret.encode(),
+            message.encode(),
+            hashlib.sha256
+        ).hexdigest()
+        
+        return {
+            'X-Installer-Timestamp': timestamp,
+            'X-Installer-Signature': signature,
+            'X-Installer-ID': self.client_id
+        }
+
+    def _update_download_count(self, is_update=False):
+        try:
+            # Make a quick request to LFS endpoint with authentication
+            params = {'update': '1'} if is_update else {}
+            headers = self._generate_auth_headers()
+            
+            requests.get(
+                'https://lfs.ascendara.app/download', 
+                params=params,
+                headers=headers,
+                timeout=2,  # Short timeout since we don't need the response
+                stream=True  # Don't download the file
+            )
+        except:
+            # Silently ignore any errors - download count is not critical
+            pass

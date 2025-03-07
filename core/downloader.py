@@ -1,74 +1,97 @@
+import os
 import requests
 import logging
-import os
-import time
-from requests.adapters import HTTPAdapter, Retry
+from typing import Optional, Dict
 
 class Downloader:
     def __init__(self, progress_callback=None, status_callback=None):
         self.progress_callback = progress_callback
         self.status_callback = status_callback
-        
-    def download_file(self, url, local_filename):
-        try:
-            session = requests.Session()
-            session.headers.update({
-                'Accept-Encoding': 'gzip, deflate',
-                'Connection': 'keep-alive',
-                'User-Agent': 'Ascendara-Installer'
-            })
-            
-            retry_strategy = Retry(
-                total=3,
-                backoff_factor=0.5,
-                status_forcelist=[500, 502, 503, 504]
-            )
-            adapter = HTTPAdapter(max_retries=retry_strategy)
-            session.mount("http://", adapter)
-            session.mount("https://", adapter)
 
-            with session.get(url, stream=True, timeout=30) as r:
-                if r.status_code != 200:
-                    logging.error(f"Server response: {r.text}")
-                r.raise_for_status()
-                total_size = int(r.headers.get('content-length', 0))
+    def download_file(self, url: str, local_path: str, headers: Optional[Dict] = None) -> str:
+        """
+        Download a file from URL to local path with progress tracking
+        
+        Args:
+            url: URL to download from
+            local_path: Local path to save the file to
+            headers: Optional headers to include in the request
+            
+        Returns:
+            str: Path to the downloaded file
+        """
+        try:
+            # Ensure download directory exists
+            os.makedirs(os.path.dirname(local_path), exist_ok=True)
+            
+            # Chrome-like headers for better compatibility
+            default_headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                'Accept': '*/*',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Connection': 'keep-alive'
+            }
+            
+            # Merge default headers with custom headers if provided
+            if headers:
+                default_headers.update(headers)
+            
+            # Stream the download with larger chunks and a generous timeout
+            with requests.get(url, headers=default_headers, stream=True, timeout=30) as response:
+                response.raise_for_status()
+                total_size = int(response.headers.get('content-length', 0))
                 
-                if self.progress_callback:
-                    self.progress_callback(0.25)  # Initial setup phase
-                
-                with open(local_filename, 'wb', buffering=8*1024*1024) as f:
+                # Use a large buffer for better performance
+                with open(local_path, 'wb', buffering=1024*1024) as f:
                     if total_size == 0:
-                        f.write(r.content)
+                        f.write(response.content)
                     else:
                         downloaded = 0
-                        for chunk in r.iter_content(chunk_size=8*1024*1024):
+                        # Use larger chunks (1MB) for faster downloads
+                        for chunk in response.iter_content(chunk_size=1024*1024):
                             if chunk:
-                                f.write(chunk)
                                 downloaded += len(chunk)
-                                if self.progress_callback:
-                                    progress = (downloaded / total_size * 74) + 25
-                                    progress = min(progress * 1.5, 99)
-                                    self.progress_callback(progress / 100)
-                
-                if self.progress_callback:
-                    self.progress_callback(1.0)
-                if self.status_callback:
-                    self.status_callback("Installing... 100%")
-                return local_filename
-                
+                                f.write(chunk)
+                                
+                                # Calculate and report progress (capped at 100%)
+                                if self.progress_callback and total_size:
+                                    progress = min((downloaded / total_size) * 100, 100.0)
+                                    self.progress_callback(progress)
+                                    
+            return local_path
+            
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Download failed: {str(e)}")
+            if self.status_callback:
+                self.status_callback(f"Download error: {str(e)}")
+            raise
         except Exception as e:
-            logging.error(f"Download error: {str(e)}")
-            if os.path.exists(local_filename):
-                try:
-                    os.remove(local_filename)
-                except:
-                    pass
-            raise e
+            logging.error(f"Unexpected error during download: {str(e)}")
+            if self.status_callback:
+                self.status_callback(f"Error: {str(e)}")
+            raise
 
     def get_latest_github_release(self):
         try:
+            # First try to get version from api.ascendara.app
+            try:
+                response = requests.get('https://api.ascendara.app', timeout=10)
+                if response.status_code == 200:
+                    data = response.json()
+                    if 'appVer' in data and data.get('status') == 'OK':
+                        version = data['appVer']
+                        return f'https://github.com/tagoWorks/ascendara/releases/download/{version}/Ascendara.Setup.{version}.exe'
+            except:
+                pass  # Silently fall back to GitHub API if this fails
+            
+            # Fallback to GitHub API
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'application/json'
+            }
+            
             api_url = "https://api.github.com/repos/ascendara/Ascendara/releases/latest"
-            response = requests.get(api_url, timeout=10)
+            response = requests.get(api_url, headers=headers, timeout=10)
             response.raise_for_status()
             data = response.json()
             

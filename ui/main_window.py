@@ -23,6 +23,7 @@ def is_windows_dark_mode():
     except Exception as e:
         logging.warning(f"Could not detect Windows dark mode: {e}")
         return False
+        
 
 # Detect Windows dark mode once before initializing CTk
 windows_dark_mode = is_windows_dark_mode()

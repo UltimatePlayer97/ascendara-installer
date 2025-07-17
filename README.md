@@ -4,7 +4,7 @@
     <p>
         <img src="https://img.shields.io/github/last-commit/ascendara/installer" alt="Last Commit">
         <a href="https://ascendara.app/"><img src="https://img.shields.io/badge/website-ascendara.app-blue" alt="Website"></a>
-         <a href="./LICENSE"><img src="https://img.shields.io/badge/license-CC%20BY--NC%201.0-green" alt="License"></a>
+        <img src="https://img.shields.io/github/license/ascendara/installer" alt="License">
     </p>
 </div>
 

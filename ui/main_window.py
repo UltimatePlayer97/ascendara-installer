@@ -1,3 +1,4 @@
+# main_window.py
 import os
 import logging
 import threading
@@ -23,6 +24,7 @@ def is_windows_dark_mode():
     except Exception as e:
         logging.warning(f"Could not detect Windows dark mode: {e}")
         return False
+        
 
 # Detect Windows dark mode once before initializing CTk
 windows_dark_mode = is_windows_dark_mode()
@@ -33,16 +35,18 @@ if windows_dark_mode:
 else:
     ctk.set_appearance_mode("light")
 
+# Set appearance mode and default color theme
+ctk.set_appearance_mode("light")
 ctk.set_default_color_theme("blue")
 
 class AscendaraInstaller(ctk.CTk):
     def __init__(self):
         """Initialize the main application window"""
         super().__init__()
-
+    
         logging.info("Initializing main window")
-
-        # Set color schemes for light and dark themes
+            
+        # Set up colors for light theme
         self.light_colors = {
             "bg_primary": "#F5F0FF",
             "bg_secondary": "#EBE4FF",
@@ -67,37 +71,40 @@ class AscendaraInstaller(ctk.CTk):
             "error": "#F44336"
         }
 
-        # Choose colors based on detected mode
-        self.colors = self.dark_colors if windows_dark_mode else self.light_colors
+        self.colors = self.light_colors if not windows_dark_mode else self.dark_colors
 
+        
         # Set up animation properties
         self.frame_time = 1.0 / 60.0  # Target 60 FPS
         self.animation_running = False
-
+        
         # Initialize log window reference
         self.log_window = None
-
+        
         # Initialize installer reference
         self.installer = None
-
+        
         # Track after callbacks
         self.after_ids = {}
-
+        
         # Initialize variables
         self.x = 0
         self.y = 0
         self._indeterminate_active = False
-
+        
+        # Configure window
         logging.info("Setting up window...")
         self._setup_window()
-
-        logging.info("Creating UI...")
+        
+        # Create UI elements
         self._create_ui()
-
+        
         logging.info(f"Installer Version {version}")
-
+        
+        # Start animation loop
         self._start_animation_loop()
-
+        
+        # Fade in the window
         self.attributes('-alpha', 0.0)
         self.fade_in(completion_callback=self.on_fade_in_complete)
         
@@ -531,69 +538,218 @@ class AscendaraInstaller(ctk.CTk):
     
     def _show_logs(self):
         """Show the log window"""
-        if self.log_window is None or not self.log_window.winfo_exists():
-            from core.log_window import LogWindow  # Import only when needed to avoid circular imports
-            self.log_window = LogWindow(self)
-        else:
-            self.log_window.lift()
-    
-    def _on_install_click(self):
-        """Handle the install button click"""
-        if self.installer is not None and self.installer.is_running():
-            logging.info("Installation already in progress")
-            return
+        import logging
+        logging.info("Opening log window...")
         
-        logging.info("Starting installation process...")
-        
-        # Disable install button
-        self.install_button.configure(state="disabled")
-        self.status_text.configure(text="Installing...")
-        
-        self.progress_bar.configure(mode="indeterminate")
-        self._indeterminate_active = True
-        
-        # Start installer process in a separate thread
-        self.installer = InstallerProcess(self)
-        installer_thread = threading.Thread(target=self.installer.run)
-        installer_thread.daemon = True
-        installer_thread.start()
-    
-    def update_progress(self, value, max_value, task_name=""):
-        """Update the progress bar and labels"""
-        self._indeterminate_active = False
-        self.progress_bar.configure(mode="determinate")
-        
-        progress_percent = 0
-        if max_value > 0:
-            progress_percent = min(100, int((value / max_value) * 100))
-        
-        self.progress_bar.set(value / max_value if max_value > 0 else 0)
-        self.percentage.configure(text=f"{progress_percent}%")
-        self.current_task.configure(text=task_name)
-        self.status_label.configure(text=f"{task_name}...")
+        try:
+            # Check if log window exists and is still valid
+            if self.log_window is None or not self.log_window.winfo_exists():
+                # Import here to avoid circular imports
+                from ui.log_window import LogWindow
+                logging.info("Creating new log window")
+                self.log_window = LogWindow()
+                self.log_window.focus_force()  # Bring to front
+                logging.info("Log window created successfully")
+            else:
+                # If window exists, just bring it to front
+                logging.info("Focusing existing log window")
+                self.log_window.focus_force()
+                logging.info("Log window focused")
+        except Exception as e:
+            logging.error(f"Error showing log window: {e}")
+            # Reset log window reference and try again
+            self.log_window = None
+            try:
+                from ui.log_window import LogWindow
+                logging.info("Retrying log window creation after error")
+                self.log_window = LogWindow()
+                logging.info("Log window created successfully on retry")
+            except Exception as e2:
+                logging.error(f"Failed to create log window on retry: {e2}")
     
     def on_fade_in_complete(self):
-        logging.info("Fade-in complete, application ready.")
+        """Called when fade in is complete"""
+        logging.info("Fade in complete, starting installation")
+        self._start_installation()
     
-    def fade_in(self, completion_callback=None):
+    def _start_installation(self):
+        """Start the installation process"""
+        # Update status
+        self._update_status("Starting installation...")
+        
+        # Set progress bar to indeterminate mode
+        self.progress_bar.configure(mode="indeterminate")
+        self.progress_bar.start()
+        self._indeterminate_active = True
+        
+        # Start the installer process
+        installer = InstallerProcess(
+            progress_callback=self.update_progress,
+            status_callback=self._update_status,
+            completion_callback=self._on_installation_complete
+        )
+        installer.start()
+    
+    def fade_in(self, current_alpha=0.0, completion_callback=None):
         """Fade in the window gradually"""
-        alpha = self.attributes('-alpha')
-        alpha += 0.05
-        if alpha >= 1.0:
-            self.attributes('-alpha', 1.0)
-            if completion_callback:
-                completion_callback()
-        else:
-            self.attributes('-alpha', alpha)
-            self.after(30, lambda: self.fade_in(completion_callback))
+        if current_alpha < 1.0:
+            current_alpha += 0.05
+            self.attributes('-alpha', current_alpha)
+            self.after(20, lambda: self.fade_in(current_alpha, completion_callback))
+            logging.info(f"Fading in window: {current_alpha:.2f}")
+        elif completion_callback:
+            completion_callback()
+    
+    def fade_out(self, current_alpha=1.0, on_complete=None):
+        """Fade out the window gradually"""
+        if current_alpha > 0:
+            current_alpha -= 0.05
+            self.attributes('-alpha', current_alpha)
+            self.after(20, lambda: self.fade_out(current_alpha, on_complete))
+        elif on_complete:
+            on_complete()
     
     def close(self):
-        """Close the application gracefully"""
-        self.animation_running = False
-        self.destroy()
-
-
-if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    app = AscendaraInstaller()
-    app.mainloop()
+        """Close the application with fade effect"""
+        # Close log window if open
+        if self.log_window is not None and hasattr(self.log_window, 'winfo_exists') and self.log_window.winfo_exists():
+            try:
+                self.log_window._on_close()
+            except Exception as e:
+                import logging
+                logging.error(f"Error closing log window: {e}")
+        
+        # Cancel any pending after callbacks
+        for widget_id, after_id in list(self.after_ids.items()):
+            try:
+                self.after_cancel(after_id)
+            except Exception:
+                pass
+        self.after_ids.clear()
+        
+        # Start fade out
+        self._fade_out()
+    
+    def _fade_out(self, current_alpha=1.0):
+        """Fade out the window gradually"""
+        if current_alpha > 0:
+            current_alpha -= 0.05
+            self.attributes('-alpha', current_alpha)
+            after_id = self.after(20, lambda: self._fade_out(current_alpha))
+            self.after_ids['fade_out'] = after_id
+        else:
+            self.destroy()
+    
+    def update_progress(self, progress):
+        """Update the installation progress"""
+        if progress is None:
+            # If progress is None, we're in indeterminate mode
+            if self.progress_bar.cget("mode") != "indeterminate":
+                self.progress_bar.configure(mode="indeterminate")
+                self.progress_bar.start()
+                self._indeterminate_active = True
+            return
+        
+        # If we were in indeterminate mode, switch to determinate
+        if self.progress_bar.cget("mode") == "indeterminate":
+            self._indeterminate_active = False
+            self.progress_bar.stop()
+            self.progress_bar.configure(mode="determinate")
+            # Small delay to ensure the transition is smooth
+            self.after(50, lambda: self._update_determinate_progress(progress))
+        else:
+            self._update_determinate_progress(progress)
+    
+    def _update_determinate_progress(self, progress):
+        """Update progress in determinate mode"""
+        # Ensure progress is between 0 and 1
+        # The downloader sends progress as a percentage (0-100)
+        # We need to normalize it to 0-1 for the progress bar
+        if progress > 1.0:
+            normalized_progress = min(max(float(progress) / 100.0, 0.0), 1.0)
+        else:
+            normalized_progress = min(max(float(progress), 0.0), 1.0)
+        
+        # Update progress bar
+        self.progress_bar.set(normalized_progress)
+        
+        # Update percentage text (0-100%)
+        percentage_text = f"{int(normalized_progress * 100)}%"
+        self.percentage.configure(text=percentage_text)
+        
+        # Update task text based on progress
+        if normalized_progress < 0.3:
+            self.current_task.configure(text="Downloading components...")
+        elif normalized_progress < 0.6:
+            self.current_task.configure(text="Extracting files...")
+        elif normalized_progress < 0.9:
+            self.current_task.configure(text="Configuring application...")
+        else:
+            self.current_task.configure(text="Finalizing installation...")
+    
+    def _update_status(self, text):
+        """Update the status text"""
+        self.status_label.configure(text=text)
+        self.status_text.configure(text=text)
+    
+    def _on_installation_complete(self, success):
+        """Handle installation completion"""
+        if success:
+            self.status_label.configure(text="Installation Complete!")
+            self.status_text.configure(text="Installation complete - Launching application...")
+            self.current_task.configure(text="Installation completed successfully")
+            self.progress_bar.configure(progress_color=self.colors["success"])
+            # Close after a delay
+            self.after(2000, self.close)
+        else:
+            self.status_label.configure(text="Installation Failed")
+            self.status_text.configure(text="Installation failed - See logs for details")
+            self.current_task.configure(text="An error occurred during installation")
+            self.progress_bar.configure(progress_color=self.colors["error"])
+    
+    def _on_install_click(self):
+        """Handle install button click"""
+        logging.info("Install button clicked")
+        
+        # Disable buttons during installation
+        self.install_button.configure(state="disabled")
+        self.exit_button.configure(state="disabled")
+        
+        # Update UI for installation
+        self.current_task.configure(text="Preparing installation...")
+        self.percentage.configure(text="0%")
+        
+        # Clear previous installer if exists
+        if self.installer:
+            self.installer = None
+        
+        # Create and start installer process
+        try:
+            from core.installer import InstallerProcess
+            logging.info("Creating installer process")
+            self.installer = InstallerProcess(
+                progress_callback=self.update_progress,
+                status_callback=self._update_status_text,
+                completion_callback=self._on_installation_complete
+            )
+            logging.info("Starting installer process")
+            self.installer.start()
+            logging.info("Installation process started")
+        except Exception as e:
+            logging.error(f"Failed to start installation: {e}")
+            self._on_installation_error(str(e))
+    
+    def _update_status_text(self, text):
+        """Update the status text"""
+        logging.info(f"Status update: {text}")
+        self.status_text.configure(text=text)
+        self.current_task.configure(text=text)
+    
+    def _on_installation_error(self, error):
+        """Handle installation error"""
+        self.status_label.configure(text="Installation Failed")
+        self.status_text.configure(text="Installation failed - See logs for details")
+        self.current_task.configure(text="An error occurred during installation")
+        self.progress_bar.configure(progress_color=self.colors["error"])
+        self.install_button.configure(state="normal")
+        self.exit_button.configure(state="normal")
